@@ -1,9 +1,14 @@
 package internal
 
-import "kikneip.com/akirawhats/internal/model"
+import (
+	"context"
+
+	"kikneip.com/akirawhats/internal/model"
+)
 
 type UserService interface {
-	GetUserByID(id string) (*model.UserDTO, error)
-	CreateUser(u model.UserDTOPost) error
-	DeleteUser(id string) error
+	GetAllUsers(ctx context.Context) ([]model.UserDTO, error)
+	GetUserByID(ctx context.Context, id string) (*model.UserDTO, error)
+	CreateUser(ctx context.Context, u model.UserDTOPost) (*model.UserDTO, error)
+	DeleteUser(ctx context.Context, id string) error
 }
