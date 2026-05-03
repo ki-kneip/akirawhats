@@ -1,0 +1,550 @@
+openapi: 3.0.3
+info:
+  title: AkiraWhats API
+  description: |
+    API para gerenciamento de instâncias WhatsApp e usuários.
+
+    ## Fluxo de conexão de uma instância
+
+    1. `POST /api/instance` — cria a instância (retorna status `qr`)
+    2. `GET /api/instance/{id}/qr` — obtém o QR code e exibe ao usuário
+    3. Usuário escaneia com o WhatsApp → status muda para `connected`
+    4. `POST /api/instance/{id}/send/text` — envia mensagens
+
+    ## Status possíveis de uma instância
+
+    | Status | Descrição |
+    |--------|-----------|
+    | `connecting` | Iniciando conexão |
+    | `qr` | Aguardando leitura do QR code |
+    | `connected` | Conectado e autenticado |
+    | `disconnected` | Desconectado (tentará reconectar automaticamente) |
+    | `logged_out` | Sessão encerrada |
+  version: "1.0.0"
+  contact:
+    email: henriquekneip@gmail.com
+
+servers:
+  - url: http://localhost:8080/api
+    description: Desenvolvimento local
+
+tags:
+  - name: Health
+    description: Verificação de saúde do serviço
+  - name: Users
+    description: Gerenciamento de usuários da plataforma
+  - name: Instances
+    description: Gerenciamento de instâncias WhatsApp
+
+paths:
+  /ping:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: ping
+      responses:
+        "200":
+          description: Serviço online
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: pong
+
+  /user:
+    post:
+      tags: [Users]
+      summary: Criar usuário
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+            example:
+              firstName: João
+              lastName: Silva
+              email: joao.silva@example.com
+              password: secret123
+      responses:
+        "201":
+          description: Usuário criado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      tags: [Users]
+      summary: Listar todos os usuários
+      operationId: listUsers
+      responses:
+        "200":
+          description: Lista de usuários
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /user/{id}:
+    get:
+      tags: [Users]
+      summary: Buscar usuário por ID
+      operationId: getUserById
+      parameters:
+        - $ref: "#/components/parameters/ResourceID"
+      responses:
+        "200":
+          description: Usuário encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [Users]
+      summary: Atualizar usuário
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/ResourceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+            example:
+              first_name: João
+              last_name: Silva
+              email: novo@example.com
+      responses:
+        "200":
+          description: Usuário atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [Users]
+      summary: Deletar usuário
+      operationId: deleteUser
+      parameters:
+        - $ref: "#/components/parameters/ResourceID"
+      responses:
+        "200":
+          description: Usuário deletado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: user deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /instance:
+    post:
+      tags: [Instances]
+      summary: Criar instância WhatsApp
+      description: |
+        Cria uma nova instância WhatsApp. Após criar, use `GET /instance/{id}/qr`
+        para obter o QR code e autenticar o número. Quando o QR é escaneado,
+        o status muda automaticamente para `connected`.
+      operationId: createInstance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstanceCreate"
+            example:
+              id: minha-instancia
+              webhookUrl: https://meu-backend.com/webhook/whatsapp
+      responses:
+        "201":
+          description: Instância criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Já existe uma instância com este ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: 'session "minha-instancia" already exists'
+
+    get:
+      tags: [Instances]
+      summary: Listar instâncias
+      operationId: listInstances
+      responses:
+        "200":
+          description: Lista de instâncias ativas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceSummary"
+
+  /instance/{id}:
+    get:
+      tags: [Instances]
+      summary: Status detalhado da instância
+      operationId: getInstance
+      parameters:
+        - $ref: "#/components/parameters/InstanceID"
+      responses:
+        "200":
+          description: Detalhes da instância
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Instances]
+      summary: Remover instância (logout)
+      description: Realiza logout no WhatsApp e remove a instância permanentemente. A sessão não será restaurada no próximo restart.
+      operationId: deleteInstance
+      parameters:
+        - $ref: "#/components/parameters/InstanceID"
+      responses:
+        "200":
+          description: Instância removida com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: instance removed
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /instance/{id}/qr:
+    get:
+      tags: [Instances]
+      summary: Obter QR code para autenticação
+      description: |
+        Retorna o QR code atual para autenticação do WhatsApp.
+        Disponível apenas quando o status da instância é `qr`.
+
+        **Como usar:**
+        - Faça polling a cada 5–10 segundos até receber um QR code
+        - Renderize o valor de `qr` como QR code (ex: biblioteca `qrcode`)
+        - Quando o usuário escanear, o status muda para `connected`
+        - Retorna `204` quando não há QR disponível (instância já conectada ou ainda conectando)
+      operationId: getInstanceQR
+      parameters:
+        - $ref: "#/components/parameters/InstanceID"
+      responses:
+        "200":
+          description: QR code disponível
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qr:
+                    type: string
+                    description: String do QR code para ser renderizada
+                    example: "2@AbCdEfGhIj..."
+        "204":
+          description: Sem QR code disponível (instância já conectada ou não iniciada)
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /instance/{id}/webhook:
+    post:
+      tags: [Instances]
+      summary: Configurar webhook da instância
+      description: |
+        Define ou atualiza a URL de webhook para entrega de mensagens recebidas.
+        Quando uma mensagem chega, a API faz um `POST` para essa URL com o payload abaixo.
+
+        ```json
+        {
+          "instance": "minha-instancia",
+          "from": "5511999999999@s.whatsapp.net",
+          "message": "Olá!",
+          "timestamp": "2026-05-01T12:00:00Z"
+        }
+        ```
+      operationId: setWebhook
+      parameters:
+        - $ref: "#/components/parameters/InstanceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  example: https://meu-backend.com/webhook/whatsapp
+      responses:
+        "200":
+          description: Webhook configurado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhookUrl:
+                    type: string
+                    example: https://meu-backend.com/webhook/whatsapp
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /instance/{id}/send/text:
+    post:
+      tags: [Instances]
+      summary: Enviar mensagem de texto
+      description: |
+        Envia uma mensagem de texto via instância WhatsApp.
+        A instância deve estar com status `connected`.
+
+        O campo `to` deve ser um JID válido do WhatsApp:
+        - Contato individual: `5511999999999@s.whatsapp.net`
+        - Grupo: `123456789-987654321@g.us`
+      operationId: sendText
+      parameters:
+        - $ref: "#/components/parameters/InstanceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTextRequest"
+            example:
+              to: "5511999999999@s.whatsapp.net"
+              message: "Olá! Tudo bem?"
+      responses:
+        "200":
+          description: Mensagem enviada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Instância não está conectada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: instance not connected
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ID único gerado automaticamente (UUID v4)
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        firstName:
+          type: string
+          example: "João"
+        lastName:
+          type: string
+          example: "Silva"
+        email:
+          type: string
+          format: email
+          example: "joao.silva@example.com"
+
+    UserCreate:
+      type: object
+      required: [firstName, lastName, email, password]
+      properties:
+        firstName:
+          type: string
+          example: "João"
+        lastName:
+          type: string
+          example: "Silva"
+        email:
+          type: string
+          format: email
+          example: "joao.silva@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 6
+          example: "secret123"
+
+    InstanceStatus:
+      type: string
+      enum: [connecting, qr, connected, disconnected, logged_out]
+      example: connected
+
+    UserUpdate:
+      type: object
+      description: Todos os campos são opcionais — apenas os informados serão atualizados
+      properties:
+        first_name:
+          type: string
+          example: "João"
+        last_name:
+          type: string
+          example: "Silva"
+        email:
+          type: string
+          format: email
+          example: "joao.silva@example.com"
+
+    InstanceCreate:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: Identificador único da instância (escolhido pelo cliente)
+          example: "minha-instancia"
+        webhookUrl:
+          type: string
+          format: uri
+          description: URL para receber mensagens via POST (opcional, pode ser configurado depois)
+          example: "https://meu-backend.com/webhook/whatsapp"
+
+    InstanceSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "minha-instancia"
+        status:
+          $ref: "#/components/schemas/InstanceStatus"
+        phone:
+          type: string
+          description: Número do telefone vinculado (disponível após autenticação)
+          example: "5511999999999"
+
+    InstanceDetail:
+      allOf:
+        - $ref: "#/components/schemas/InstanceSummary"
+        - type: object
+          properties:
+            qr:
+              type: string
+              description: QR code atual — presente apenas quando status é `qr`
+              example: "2@AbCdEfGhIj..."
+
+    SendTextRequest:
+      type: object
+      required: [to, message]
+      properties:
+        to:
+          type: string
+          description: "JID do destinatário"
+          example: "5511999999999@s.whatsapp.net"
+        message:
+          type: string
+          description: Texto da mensagem
+          example: "Olá! Tudo bem?"
+
+    SendResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ID da mensagem no WhatsApp
+          example: "3EB0123456789ABCDEF0"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-05-01T12:00:00Z"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "resource not found"
+
+  parameters:
+    ResourceID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: ID do recurso
+
+    InstanceID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: ID da instância WhatsApp
+      example: minha-instancia
+
+  responses:
+    BadRequest:
+      description: Dados inválidos na requisição
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    NotFound:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    InternalError:
+      description: Erro interno do servidor
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
