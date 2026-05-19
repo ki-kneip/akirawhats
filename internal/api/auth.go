@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -14,7 +15,11 @@ import (
 func registrarAuth(e gin.IRouter, svc internal_pkg.UserService) {
 	grp := e.Group("/auth")
 
-	grp.POST("/register", func(c *gin.Context) {
+	loginRL := newRateLimiter(5, 10)    // burst 5, 10 req/min por IP
+	registerRL := newRateLimiter(3, 5)  // burst 3, 5 req/min por IP
+	startRateLimitGC(loginRL, registerRL)
+
+	grp.POST("/register", rateLimitMiddleware(registerRL), func(c *gin.Context) {
 		var req model.RegisterRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -29,18 +34,24 @@ func registrarAuth(e gin.IRouter, svc internal_pkg.UserService) {
 			Password:  req.Password,
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			if errors.Is(err, internal_pkg.ErrAlreadyExists) {
+				c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
+				return
+			}
+			log.Printf("register error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
-		token, err := issueToken(user.ID)
+		token, err := issueToken(user.ID, user.Role)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+			log.Printf("token issue error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
 		c.JSON(http.StatusCreated, model.AuthResponse{Token: token, User: *user})
 	})
 
-	grp.POST("/login", func(c *gin.Context) {
+	grp.POST("/login", rateLimitMiddleware(loginRL), func(c *gin.Context) {
 		var req model.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -54,12 +65,14 @@ func registrarAuth(e gin.IRouter, svc internal_pkg.UserService) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			log.Printf("login error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
-		token, err := issueToken(user.ID)
+		token, err := issueToken(user.ID, user.Role)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+			log.Printf("token issue error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
 		c.JSON(http.StatusOK, model.AuthResponse{Token: token, User: *user})

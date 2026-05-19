@@ -13,6 +13,15 @@ import (
 
 const messagesCollection = "messages"
 
+const (
+	MsgDirectionIn  = "in"
+	MsgDirectionOut = "out"
+
+	MsgStatusSent      = "sent"
+	MsgStatusDelivered = "delivered"
+	MsgStatusRead      = "read"
+)
+
 type msgDoc struct {
 	ID         string    `bson:"_id"`
 	InstanceID string    `bson:"instance_id"`
@@ -20,14 +29,17 @@ type msgDoc struct {
 	From       string    `bson:"from"`
 	Body       string    `bson:"body"`
 	Timestamp  time.Time `bson:"timestamp"`
+	Direction  string    `bson:"direction"`
+	Status     string    `bson:"status"`
 }
 
-// MsgDoc é a visão pública de uma mensagem (sem dados internos de isolamento).
 type MsgDoc struct {
 	ID        string    `bson:"_id"        json:"id"`
 	From      string    `bson:"from"       json:"from"`
 	Body      string    `bson:"body"       json:"body"`
 	Timestamp time.Time `bson:"timestamp"  json:"timestamp"`
+	Direction string    `bson:"direction"  json:"direction"`
+	Status    string    `bson:"status"     json:"status"`
 }
 
 func persistMessage(instanceID, ownerID, from, body string, ts time.Time) {
@@ -41,9 +53,43 @@ func persistMessage(instanceID, ownerID, from, body string, ts time.Time) {
 		From:       from,
 		Body:       body,
 		Timestamp:  ts,
+		Direction:  MsgDirectionIn,
+		Status:     MsgStatusDelivered,
 	}
 	if _, err := col.InsertOne(ctx, doc); err != nil {
 		log.Printf("[%s] persist message: %v", instanceID, err)
+	}
+}
+
+func PersistSentMessage(instanceID, ownerID, msgWAID, to, body string, ts time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	col := db.Collection(messagesCollection)
+	doc := msgDoc{
+		ID:         msgWAID,
+		InstanceID: instanceID,
+		OwnerID:    ownerID,
+		From:       to,
+		Body:       body,
+		Timestamp:  ts,
+		Direction:  MsgDirectionOut,
+		Status:     MsgStatusSent,
+	}
+	if _, err := col.InsertOne(ctx, doc); err != nil {
+		log.Printf("[%s] persist sent message: %v", instanceID, err)
+	}
+}
+
+func UpdateMessageStatus(instanceID, msgWAID, status string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	col := db.Collection(messagesCollection)
+	_, err := col.UpdateOne(ctx,
+		bson.M{"_id": msgWAID, "instance_id": instanceID},
+		bson.M{"$set": bson.M{"status": status}},
+	)
+	if err != nil {
+		log.Printf("[%s] update message status: %v", instanceID, err)
 	}
 }
 

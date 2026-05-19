@@ -4,7 +4,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "./client"
-import type { Instance, Message, SendTextResponse } from "./types"
+import type { Instance, Message, SendTextResponse, GroupInfo } from "./types"
 
 export const instanceKeys = {
   all: ["instances"] as const,
@@ -54,6 +54,15 @@ export function useDeleteInstance() {
   })
 }
 
+export function useSetWebhook(instanceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (url: string) =>
+      api.post(`/api/instance/${instanceId}/webhook`, { url }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: instanceKeys.detail(instanceId) }),
+  })
+}
+
 export function useSendText(instanceId: string) {
   return useMutation({
     mutationFn: ({ to, message }: { to: string; message: string }) =>
@@ -64,10 +73,31 @@ export function useSendText(instanceId: string) {
   })
 }
 
+export function useSendImage(instanceId: string) {
+  return useMutation({
+    mutationFn: ({ to, file, caption }: { to: string; file: File; caption?: string }) => {
+      const form = new FormData()
+      form.append("to", to)
+      form.append("file", file)
+      if (caption) form.append("caption", caption)
+      return api.upload<SendTextResponse>(`/api/instance/${instanceId}/send/image`, form)
+    },
+  })
+}
+
 export function useInstanceMessages(instanceId: string) {
   return useQuery({
     queryKey: instanceKeys.messages(instanceId),
     queryFn: () => api.get<Message[]>(`/api/instance/${instanceId}/messages`),
     refetchInterval: 5000,
+  })
+}
+
+export function useGroups(instanceId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["instances", instanceId, "groups"],
+    queryFn: () => api.get<GroupInfo[]>(`/api/instance/${instanceId}/groups`),
+    enabled,
+    staleTime: 30_000,
   })
 }

@@ -27,7 +27,11 @@ export function QRCodeDisplay({ instance, onClose }: Props) {
   useEffect(() => {
     const qrString = qrData?.qr ?? instance.qr
     if (qrString && canvasRef.current) {
-      QRCode.toCanvas(canvasRef.current, qrString, { width: 256 })
+      QRCode.toCanvas(canvasRef.current, qrString, {
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: "L",
+      })
     }
   }, [qrData?.qr, instance.qr])
 
@@ -55,7 +59,7 @@ export function QRCodeDisplay({ instance, onClose }: Props) {
         Abra o WhatsApp no celular e escaneie o código abaixo.
       </p>
 
-      <div className="flex size-64 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
+      <div className="flex size-80 items-center justify-center rounded-xl border border-zinc-200 bg-white">
         {instance.qr || qrData?.qr ? (
           <canvas ref={canvasRef} />
         ) : (

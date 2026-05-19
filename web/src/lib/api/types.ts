@@ -5,6 +5,7 @@ export interface Instance {
   status: InstanceStatus
   phone?: string
   qr?: string
+  webhookUrl?: string
 }
 
 export interface User {
@@ -27,4 +28,11 @@ export interface Message {
   from: string
   body: string
   timestamp: string
+  direction: "in" | "out"
+  status: "sent" | "delivered" | "read"
+}
+
+export interface GroupInfo {
+  jid: string
+  name: string
 }

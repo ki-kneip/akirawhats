@@ -20,6 +20,7 @@ type userDoc struct {
 	LastName  string `bson:"last_name"`
 	Email     string `bson:"email"`
 	Password  string `bson:"password"`
+	Role      string `bson:"role"`
 }
 
 type UserImpl struct{}
@@ -94,6 +95,7 @@ func userToDoc(u *model.User) *userDoc {
 		LastName:  u.LastName,
 		Email:     u.Email,
 		Password:  u.Password,
+		Role:      u.Role,
 	}
 }
 
@@ -104,5 +106,6 @@ func docToUser(d *userDoc) *model.User {
 		LastName:  d.LastName,
 		Email:     d.Email,
 		Password:  d.Password,
+		Role:      d.Role,
 	}
 }

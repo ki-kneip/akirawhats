@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
@@ -111,6 +112,24 @@ func registrarWhatsApp(e gin.IRouter, sm *whatsapp.SessionManager) {
 		c.JSON(http.StatusOK, gin.H{"webhookUrl": req.URL})
 	})
 
+	grp.GET("/:id/groups", func(c *gin.Context) {
+		client, ok := sm.GetByOwner(c.Param("id"), getUserID(c))
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "instance not found"})
+			return
+		}
+		if client.GetStatus() != whatsapp.StatusConnected {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "instance not connected"})
+			return
+		}
+		groups, err := client.GetGroups(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, groups)
+	})
+
 	grp.GET("/:id/messages", func(c *gin.Context) {
 		client, ok := sm.GetByOwner(c.Param("id"), getUserID(c))
 		if !ok {
@@ -150,9 +169,62 @@ func registrarWhatsApp(e gin.IRouter, sm *whatsapp.SessionManager) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"id":        resp.ID,
-			"timestamp": resp.Timestamp,
-		})
+		c.JSON(http.StatusOK, gin.H{"id": resp.ID, "timestamp": resp.Timestamp})
+	})
+
+	grp.POST("/:id/send/image", func(c *gin.Context) {
+		client, ok := sm.GetByOwner(c.Param("id"), getUserID(c))
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "instance not found"})
+			return
+		}
+		if client.GetStatus() != whatsapp.StatusConnected {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "instance not connected"})
+			return
+		}
+
+		to := c.PostForm("to")
+		if to == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "field 'to' is required"})
+			return
+		}
+		caption := c.PostForm("caption")
+
+		fh, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "field 'file' is required"})
+			return
+		}
+
+		const maxSize = 5 << 20 // 5 MB
+		if fh.Size > maxSize {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file exceeds 5 MB limit"})
+			return
+		}
+
+		f, err := fh.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not read file"})
+			return
+		}
+		defer f.Close()
+
+		data, err := io.ReadAll(io.LimitReader(f, maxSize))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not read file"})
+			return
+		}
+
+		mimetype := fh.Header.Get("Content-Type")
+		if mimetype == "" {
+			mimetype = "image/jpeg"
+		}
+
+		resp, err := client.SendImage(c.Request.Context(), to, data, mimetype, caption)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"id": resp.ID, "timestamp": resp.Timestamp})
 	})
 }

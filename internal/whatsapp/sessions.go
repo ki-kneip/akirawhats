@@ -79,7 +79,7 @@ func (sm *SessionManager) Create(ctx context.Context, sessionID, webhookURL, own
 		return nil, fmt.Errorf("session %q already exists", sessionID)
 	}
 
-	client, err := NewClient(ctx, sessionID, webhookURL, ownerID)
+	client, err := NewClient(sm.ctx, sessionID, webhookURL, ownerID)
 	if err != nil {
 		return nil, err
 	}

@@ -20,9 +20,18 @@ func NewUserService(repo internal.UserRepo) *UserService {
 }
 
 func (s *UserService) CreateUser(ctx context.Context, req model.UserDTOPost) (*model.UserDTO, error) {
+	if _, err := s.repo.GetUserByEmail(ctx, req.Email); err == nil {
+		return nil, internal.ErrAlreadyExists
+	} else if !errors.Is(err, internal.ErrNotFound) {
+		return nil, fmt.Errorf("check email: %w", err)
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
+	}
+	role := req.Role
+	if role != model.RoleAdmin && role != model.RoleUser {
+		role = model.RoleUser
 	}
 	user := &model.User{
 		ID:        newID(),
@@ -30,6 +39,7 @@ func (s *UserService) CreateUser(ctx context.Context, req model.UserDTOPost) (*m
 		LastName:  req.LastName,
 		Email:     req.Email,
 		Password:  string(hash),
+		Role:      role,
 	}
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -77,6 +87,22 @@ func (s *UserService) UpdateUser(ctx context.Context, id string, req model.UserD
 	return toDTO(user), nil
 }
 
+func (s *UserService) ChangePassword(ctx context.Context, id, currentPassword, newPassword string) error {
+	user, err := s.repo.GetUserByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(currentPassword)); err != nil {
+		return internal.ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.Password = string(hash)
+	return s.repo.UpdateUser(ctx, user)
+}
+
 func (s *UserService) DeleteUser(ctx context.Context, id string) error {
 	return s.repo.DeleteUser(ctx, id)
 }
@@ -101,6 +127,7 @@ func toDTO(u *model.User) *model.UserDTO {
 		FirstName: u.FirstName,
 		LastName:  u.LastName,
 		Email:     u.Email,
+		Role:      u.Role,
 	}
 }
 

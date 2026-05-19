@@ -115,6 +115,7 @@ func seedAdmin(ctx context.Context, r internal.UserRepo, svc internal.UserServic
 		LastName:  "",
 		Email:     email,
 		Password:  password,
+		Role:      model.RoleAdmin,
 	})
 	if createErr != nil {
 		log.Printf("[WARN] seed admin create failed: %v", createErr)

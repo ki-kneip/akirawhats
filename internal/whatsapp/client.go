@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -197,14 +198,76 @@ func (c *Client) GetJID() *types.JID {
 }
 
 func (c *Client) SendText(ctx context.Context, to, text string) (whatsmeow.SendResponse, error) {
-	jid, err := types.ParseJID(to)
+	jid, err := c.parseRecipient(to)
 	if err != nil {
-		return whatsmeow.SendResponse{}, fmt.Errorf("invalid JID %q: %w", to, err)
+		return whatsmeow.SendResponse{}, err
+	}
+	msg := &waProto.Message{Conversation: proto.String(text)}
+	resp, err := c.Inner.SendMessage(ctx, jid, msg)
+	if err == nil {
+		go PersistSentMessage(c.ID, c.OwnerID, resp.ID, to, text, resp.Timestamp)
+	}
+	return resp, err
+}
+
+func (c *Client) SendImage(ctx context.Context, to string, data []byte, mimetype, caption string) (whatsmeow.SendResponse, error) {
+	jid, err := c.parseRecipient(to)
+	if err != nil {
+		return whatsmeow.SendResponse{}, err
+	}
+	uploaded, err := c.Inner.Upload(ctx, data, whatsmeow.MediaImage)
+	if err != nil {
+		return whatsmeow.SendResponse{}, fmt.Errorf("upload image: %w", err)
 	}
 	msg := &waProto.Message{
-		Conversation: proto.String(text),
+		ImageMessage: &waProto.ImageMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimetype),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))),
+			Caption:       proto.String(caption),
+		},
 	}
-	return c.Inner.SendMessage(ctx, jid, msg)
+	resp, err := c.Inner.SendMessage(ctx, jid, msg)
+	if err == nil {
+		body := "[imagem]"
+		if caption != "" {
+			body = "[imagem] " + caption
+		}
+		go PersistSentMessage(c.ID, c.OwnerID, resp.ID, to, body, resp.Timestamp)
+	}
+	return resp, err
+}
+
+type GroupInfo struct {
+	JID  string `json:"jid"`
+	Name string `json:"name"`
+}
+
+func (c *Client) GetGroups(ctx context.Context) ([]GroupInfo, error) {
+	groups, err := c.Inner.GetJoinedGroups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get groups: %w", err)
+	}
+	out := make([]GroupInfo, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, GroupInfo{JID: g.JID.String(), Name: g.Name})
+	}
+	return out, nil
+}
+
+func (c *Client) parseRecipient(to string) (types.JID, error) {
+	if !strings.Contains(to, "@") {
+		to = to + "@s.whatsapp.net"
+	}
+	jid, err := types.ParseJID(to)
+	if err != nil {
+		return types.JID{}, fmt.Errorf("invalid JID %q: %w", to, err)
+	}
+	return jid, nil
 }
 
 func (c *Client) Disconnect() {
@@ -233,6 +296,15 @@ func (c *Client) registerEvents() {
 			}
 			if body != "" {
 				go persistMessage(c.ID, c.OwnerID, v.Info.Sender.String(), body, v.Info.Timestamp)
+			}
+
+		case *events.Receipt:
+			status := MsgStatusDelivered
+			if v.Type == events.ReceiptTypeRead {
+				status = MsgStatusRead
+			}
+			for _, id := range v.MessageIDs {
+				go UpdateMessageStatus(c.ID, id, status)
 			}
 
 		case *events.Disconnected:
